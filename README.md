@@ -11,7 +11,7 @@ based on purchase transactions over a dynamic rolling 3-month period.
 - [Project Structure](#project-structure)
 - [How to Run](#how-to-run)
 - [API Endpoints](#api-endpoints)
-- [Sample Requests & Responses](#sample-requests-responses)
+- [Sample Requests and Responses](#sample-requests-and-responses)
 - [Running Tests](#running-tests)
 - [H2 Database Console](#h2-database-console)
 - [Pre-loaded Sample Data](#pre-loaded-sample-data)
@@ -131,7 +131,7 @@ The application starts at: **http://localhost:8080**
 
 ---
 
-## Sample Requests & Responses
+## Sample Requests and Responses
 
 ### 1. GET All Customer Rewards
 
