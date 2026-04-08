@@ -5,13 +5,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
 import java.util.NoSuchElementException;
 
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
@@ -93,15 +98,27 @@ public class RewardsServiceTest {
     }
 
     @Test
-    @DisplayName("$51 purchase should earn 1 point")
-    void testCalculatePoints_justAbove50_returns1() {
-        assertEquals(1, rewardsService.calculatePoints(51.0));
-    }
-
-    @Test
     @DisplayName("$101 purchase should earn 52 points")
     void testCalculatePoints_justAbove100_returns52() {
         assertEquals(52, rewardsService.calculatePoints(101.0));
+    }
+    
+    @Test
+    @DisplayName("$100.50 should earn 51 points (floating point edge case)")
+    void testCalculatePoints_100dollars50cents_returns51() {
+        assertEquals(50, rewardsService.calculatePoints(100.50));
+    }
+    
+    @Test
+    @DisplayName("$50.99 should earn 0 points (just above $50 boundary)")
+    void testCalculatePoints_50dollars99cents_returns0() {
+        assertEquals(0, rewardsService.calculatePoints(50.99));
+    }
+
+    @Test
+    @DisplayName("$51.00 should earn 1 point")
+    void testCalculatePoints_51dollars_returns1() {
+        assertEquals(1, rewardsService.calculatePoints(51.0));
     }
 
     /*
@@ -114,8 +131,8 @@ public class RewardsServiceTest {
     void testGetRewardsByCustomer_validCustomer_returnsRewards() {
         LocalDate now = LocalDate.now();
         List<Transaction> mockTransactions = List.of(
-                new Transaction(null,"C001", "Sushil", 120.0, now.minusMonths(1)),
-                new Transaction(null,"C001", "Sushil", 75.0, now.minusMonths(2))
+                new Transaction(null,"C001", "Sushil", BigDecimal.valueOf(120.0), now.minusMonths(1)),
+                new Transaction(null,"C001", "Sushil", BigDecimal.valueOf(75.0), now.minusMonths(2))
         );
 
         when(transactionRepository.findByCustomerIdAndTransactionDateBetween(
@@ -129,6 +146,34 @@ public class RewardsServiceTest {
         assertEquals(115L, rewards.getTotalPoints()); // 90 + 25
     }
 
+    @Test
+    @DisplayName("getRewardsByCustomer passes correct date range to repository")
+    void testGetRewardsByCustomer_passesCorrectDateRange() {
+        LocalDate now = LocalDate.now();
+        LocalDate expectedStart = now.minusMonths(3).withDayOfMonth(1);
+
+        List<Transaction> mockTransactions = List.of(
+                new Transaction(null,"C001", "Alice", BigDecimal.valueOf(120.0),
+                        now.minusMonths(1).withDayOfMonth(10))
+        );
+
+        ArgumentCaptor<LocalDate> startCaptor =
+                ArgumentCaptor.forClass(LocalDate.class);
+        ArgumentCaptor<LocalDate> endCaptor =
+                ArgumentCaptor.forClass(LocalDate.class);
+
+        when(transactionRepository.findByCustomerIdAndTransactionDateBetween(
+                eq("C001"),
+                startCaptor.capture(),
+                endCaptor.capture()))
+                .thenReturn(mockTransactions);
+
+        rewardsService.getRewardsByCustomer("C001");
+
+        // Verify the correct start date (1st of 3 months ago)
+        assertEquals(expectedStart, startCaptor.getValue());
+    }
+    
     @Test
     @DisplayName("getRewardsByCustomer throws NoSuchElementException for unknown customer")
     void testGetRewardsByCustomer_unknownCustomer_throwsException() {
@@ -168,9 +213,9 @@ public class RewardsServiceTest {
     void testGetAllCustomerRewards_multipleCustomers_returnsAll() {
         LocalDate now = LocalDate.now();
         List<Transaction> mockTransactions = List.of(
-                new Transaction(null,"C001", "Sushil", 120.0, now.minusMonths(1)),
-                new Transaction(null,"C002", "Pramod",   200.0, now.minusMonths(1)),
-                new Transaction(null,"C003", "Khiru", 75.0,  now.minusMonths(2))
+                new Transaction(null,"C001", "Sushil", BigDecimal.valueOf(120.0), now.minusMonths(1).withDayOfMonth(5)),
+                new Transaction(null,"C002", "Pramod",   BigDecimal.valueOf(200.0), now.minusMonths(1).withDayOfMonth(6)),
+                new Transaction(null,"C003", "Khiru", BigDecimal.valueOf(75.0),  now.minusMonths(2).withDayOfMonth(7))
         );
 
         when(transactionRepository.findByTransactionDateBetween(any(), any()))
@@ -178,5 +223,42 @@ public class RewardsServiceTest {
 
         List<CustomerRewards> result = rewardsService.getAllCustomerRewards();
         assertEquals(3, result.size());
+    }
+    
+    @Test
+    @DisplayName("addTransaction saves and returns transaction")
+    void testSaveTransaction_validTransaction_returnsSaved() {
+        LocalDate now = LocalDate.now();
+        Transaction tx = new Transaction(null,"C001", "Sushil",
+        		BigDecimal.valueOf(100.0), now.minusMonths(1));
+
+        when(transactionRepository.save(any(Transaction.class)))
+                .thenReturn(tx);
+
+        Transaction result = rewardsService.addTransaction(tx);
+
+        assertNotNull(result);
+        assertEquals("C001", result.getCustomerId());
+        verify(transactionRepository, times(1)).save(tx);
+    }
+    
+    @Test
+    @DisplayName("Transaction exactly on startDate boundary should be included")
+    void testGetRewardsByCustomer_transactionOnStartDate_isIncluded() {
+        LocalDate startDate = LocalDate.now()
+                .minusMonths(3).withDayOfMonth(1);
+
+        List<Transaction> mockTransactions = List.of(
+                new Transaction(null,"C001", "Alice", BigDecimal.valueOf(120.0), startDate)
+        );
+
+        when(transactionRepository.findByCustomerIdAndTransactionDateBetween(
+                eq("C001"), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(mockTransactions);
+
+        CustomerRewards rewards = rewardsService.getRewardsByCustomer("C001");
+
+        assertNotNull(rewards);
+        assertEquals(90L, rewards.getTotalPoints());
     }
 }

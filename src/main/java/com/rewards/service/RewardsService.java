@@ -12,13 +12,11 @@ import com.rewards.model.Transaction;
 public interface RewardsService {
 
 	long calculatePoints(double amount);
-	
-	List<CustomerRewards> groupAndCalculate(List<Transaction> transactions);
-	
+
 	List<CustomerRewards> getAllCustomerRewards();
-	
+
 	CustomerRewards getRewardsByCustomer(String customerId);
-	
+
 	Transaction addTransaction(Transaction transaction);
 
 }
